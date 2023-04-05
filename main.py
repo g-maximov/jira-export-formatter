@@ -1,10 +1,16 @@
-import json
+import os
+import sys
+import requests
+
+from http.cookies import SimpleCookie
 from dataclasses import dataclass
 from datetime import date, timedelta, datetime, tzinfo, timezone
 from typing import Tuple, List, Dict
+from dotenv import load_dotenv
 
 import pandas as pd
 
+load_dotenv()
 
 @dataclass
 class JiraTask:
@@ -22,13 +28,35 @@ class WorkLogRecord:
     time_spent: timedelta
 
 
-def read_jira_info() -> dict:
-    file = open('jira_export.json', 'r')
-    export = json.load(file)
-    return export
+def get_date():
+    if len(sys.argv) == 2:
+        return sys.argv[1]
+    else:
+        now = datetime.now()
+        month = ('0' + now.month.__str__())[-2:]
+        return f'{now.year}-{month}-01'
+
+def read_jira_info(user) -> dict:
+    date = get_date()
+    url = os.environ['URL']
+    params = {
+        'jql': f'assignee in ({user}) and updated > {date} and project in (ME) and timespent > 0',
+        'fields': 'summary,worklog'
+    }
+
+    print(params['jql'])
+
+    raw_cookie = os.environ['COOKIE']
+    simple_cookies = SimpleCookie()
+    simple_cookies.load(raw_cookie)
+    cookies = {k: v.value for k, v in simple_cookies.items()}
+
+    response = requests.get(url, params=params, cookies=cookies)
+
+    return response.json()
 
 
-def extract_tasks_and_work_log(jira_export_dict: dict) -> Tuple[Dict[str, JiraTask], List[WorkLogRecord]]:
+def extract_tasks_and_work_logs(jira_export_dict: dict) -> Tuple[Dict[str, JiraTask], List[WorkLogRecord]]:
     tasks = {}
     work_logs = []
     for issue in jira_export_dict['issues']:
@@ -67,10 +95,11 @@ def filter_work_logs(work_logs: List[WorkLogRecord], username: str) -> List[Work
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    jira_info = read_jira_info()
-    (tasks, work_logs) = extract_tasks_and_work_log(jira_info)
+    user = os.environ['USER']
+    jira_info = read_jira_info(user)
+    (tasks, work_logs) = extract_tasks_and_work_logs(jira_info)
 
-    work_logs = filter_work_logs(work_logs, 'm.mustakimov')
+    work_logs = filter_work_logs(work_logs, user)
 
     grouped = group_work_logs_by_date(work_logs)
     df = pd.DataFrame(columns=['Результат', 'Задача', 'Дата', 'Время', 'Описание'])
@@ -82,9 +111,12 @@ if __name__ == '__main__':
                 task.title,
                 task.key,
                 str(log.time_started.date()),
-                log.time_spent.seconds / 60 / 60,
+                log.time_spent.seconds / 3600,
                 log.comment
             ]
             df.index = df.index + 1
             df = df.sort_index()
-    df.to_excel('result.xlsx', index=False)
+
+    print(df)
+
+    df.to_excel('output/report.xlsx', index=False)

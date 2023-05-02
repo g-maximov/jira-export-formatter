@@ -4,13 +4,14 @@ import requests
 
 from http.cookies import SimpleCookie
 from dataclasses import dataclass
-from datetime import date, timedelta, datetime, tzinfo, timezone
+from datetime import date, timedelta, datetime, timezone
 from typing import Tuple, List, Dict
 from dotenv import load_dotenv
 
 import pandas as pd
 
 load_dotenv()
+
 
 @dataclass
 class JiraTask:
@@ -36,6 +37,7 @@ def get_date():
         month = ('0' + now.month.__str__())[-2:]
         return f'{now.year}-{month}-01'
 
+
 def read_jira_info(user) -> dict:
     date = get_date()
     url = os.environ['URL']
@@ -57,6 +59,7 @@ def read_jira_info(user) -> dict:
 
 
 def extract_tasks_and_work_logs(jira_export_dict: dict) -> Tuple[Dict[str, JiraTask], List[WorkLogRecord]]:
+    month_start = datetime.fromisoformat(get_date())
     tasks = {}
     work_logs = []
     for issue in jira_export_dict['issues']:
@@ -76,6 +79,10 @@ def extract_tasks_and_work_logs(jira_export_dict: dict) -> Tuple[Dict[str, JiraT
                 ),
                 time_spent=timedelta(seconds=worklog['timeSpentSeconds'])
             )
+
+            if month_start.date() > log.time_started.date():
+                continue
+
             work_logs.append(log)
 
     return tasks, work_logs

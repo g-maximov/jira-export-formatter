@@ -42,7 +42,7 @@ def read_jira_info(user) -> dict:
     date = get_date()
     url = os.environ['URL']
     params = {
-        'jql': f'assignee in ({user}) and updated > {date} and project in (ME) and timespent > 0',
+        'jql': f'worklogAuthor = {user} and updated > {date} and project in (ME) and timespent > 0',
         'fields': 'summary,worklog'
     }
 
@@ -62,6 +62,7 @@ def extract_tasks_and_work_logs(jira_export_dict: dict) -> Tuple[Dict[str, JiraT
     month_start = datetime.fromisoformat(get_date())
     tasks = {}
     work_logs = []
+
     for issue in jira_export_dict['issues']:
         task = JiraTask(
             title=issue['fields']['summary'],
@@ -107,23 +108,27 @@ if __name__ == '__main__':
     (tasks, work_logs) = extract_tasks_and_work_logs(jira_info)
 
     work_logs = filter_work_logs(work_logs, user)
-
     grouped = group_work_logs_by_date(work_logs)
+
     df = pd.DataFrame(columns=['Результат', 'Задача', 'Дата', 'Время', 'Описание'])
+    total_hours = 0
 
     for date in sorted(grouped.keys(), reverse=True):
         for log in grouped[date]:
             task = tasks[log.task_id]
+            hours = log.time_spent.seconds / 3600
             df.loc[-1] = [
                 task.title,
                 task.key,
                 str(log.time_started.date()),
-                log.time_spent.seconds / 3600,
+                hours,
                 log.comment
             ]
             df.index = df.index + 1
             df = df.sort_index()
+            total_hours += hours
 
     print(df)
+    print(f'{round(total_hours)} hours for {len(grouped)} working days | {len(grouped) * 8} expected')
 
     df.to_excel('output/report.xlsx', index=False)
